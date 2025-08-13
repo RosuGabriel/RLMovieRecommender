@@ -1,0 +1,19 @@
+# Python autogen
+__pycache__/
+*.py[cod]
+*.pyo
+.ipynb_checkpoints/
+
+# Configs
+.env
+.venv/
+env/
+venv/
+ENV/
+*.env
+config_secrets.py
+
+# Models
+checkpoints/
+tmp/
+extra/
