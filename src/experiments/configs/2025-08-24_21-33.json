@@ -1,0 +1,19 @@
+{
+    "bestScore": 3.1710039446695872,
+    "minSteps": 3,
+    "maxSteps": 10,
+    "keepUserProfiles": true,
+    "updateFactor": 0.1,
+    "alpha": 0.001,
+    "beta": 0.0005,
+    "stateDim": 403,
+    "actionDim": 403,
+    "actorHiddenDim": 768,
+    "criticHiddenDim": 512,
+    "device": "cpu",
+    "minutes": 30,
+    "batchSize": 32,
+    "lambda": null,
+    "gamma": 0.99,
+    "epochs": 1218
+}

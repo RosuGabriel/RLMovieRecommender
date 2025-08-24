@@ -13,7 +13,7 @@ from utils.helpers import DataProcessor, show_progress_bar
 
 # MovieLensDataset Class
 class MovieLensDataset:
-    def __init__(self, loadRatings: bool = False, includeSyntheticRatings: bool = False, includeMyRatings: bool = False, loadEmbeddings: bool = False):
+    def __init__(self, loadRatings: bool = False, includeSyntheticRatings: bool = False, includeMyRatings: bool = False, loadMovieEmbeddings: bool = False):
         self.moviesDF = pd.read_csv(MOVIE_LENS_PATH + 'movies.csv')
         self.ratingEmbeddingsDF = None
         
@@ -28,7 +28,7 @@ class MovieLensDataset:
 
         self.moviesDF[['title', 'year']] = self.moviesDF['title'].apply(DataProcessor.split_title_year)
 
-        if loadEmbeddings:
+        if loadMovieEmbeddings:
             try:
                 self.movieEmbeddingsDF = pd.read_csv(EXTRA_DATA_PATH + 'movieEmbeddings.csv')
                 self.movieEmbeddingsDF['embedding'] = self.movieEmbeddingsDF['embedding'].apply(lambda x: np.array(json.loads(x)))

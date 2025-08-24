@@ -15,7 +15,7 @@ class MovieLensEnv(gym.Env):
                  useContinuousActions: bool = True, updateFactor: float = 0.1, rarityBonus: float = 0.1):
         # Initialize data
         super(MovieLensEnv, self).__init__()
-        self.dataset = dataset if dataset else MovieLensDataset(loadRatings=True, loadEmbeddings=True)
+        self.dataset = dataset if dataset else MovieLensDataset(loadRatings=True, loadMovieEmbeddings=True)
         self.dataset.calculate_all_users_embeddings()
         self.allMovieEmbeddings = np.vstack(self.dataset.movieEmbeddingsDF['embedding'].values)
         self.keepUserProfiles = keepUserProfiles
@@ -24,8 +24,7 @@ class MovieLensEnv(gym.Env):
         self.rarityBonus = rarityBonus
         self.minSteps = minSteps
         self.maxSteps = maxSteps
-        self.userProfiles = {}
-        self.userRewards = []
+        self.usersProfiles = {}
 
         # Initialize state
         self.reset()
@@ -62,11 +61,11 @@ class MovieLensEnv(gym.Env):
             self.userId = userId
 
         # Calculate user embedding
-        if self.keepUserProfiles and self.userId in self.userProfiles:
-            self.userEmbedding = self.userProfiles[self.userId]
+        if self.keepUserProfiles and self.userId in self.usersProfiles:
+            self.userEmbedding = self.usersProfiles[self.userId]
         elif self.keepUserProfiles:
-            self.userProfiles[self.userId] = self.dataset.get_user_embedding(self.userId)
-            self.userEmbedding = self.userProfiles[self.userId]
+            self.usersProfiles[self.userId] = self.dataset.get_user_embedding(self.userId)
+            self.userEmbedding = self.usersProfiles[self.userId]
         else:
             self.userEmbedding = self.dataset.get_user_embedding(self.userId)
 
@@ -99,7 +98,7 @@ class MovieLensEnv(gym.Env):
         # Update user embedding
         if reward:
             self.userEmbedding = (self.userEmbedding * (1-self.updateFactor)) + (movieEmbedding * reward * self.updateFactor)
-        self.userProfiles[self.userId] = self.userEmbedding
+        self.usersProfiles[self.userId] = self.userEmbedding
         
         done = self.stepCount >= self.lastStep
         info = {"movieEmbedding": movieEmbedding, "movieId": movieId, "rating": self.userRatings[movieId]}

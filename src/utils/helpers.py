@@ -4,7 +4,9 @@ sys.path.append("../")
 import pandas as pd
 import re
 import numpy as np
-
+from utils.paths import EXPERIMENTS_MODELS_DIR, EXPERIMENTS_CONFIGS_DIR, MODELS_CHECKPOINT_DIR
+import json
+import shutil
 
 
 # DataProcessor Class
@@ -53,6 +55,11 @@ class DataProcessor:
 
     def reward_to_rating(reward):
         return (reward + 1) * 4.5 / 2 + 0.5
+    
+
+    # Verify if user profile exceeds bounds
+    def array_exceeds_bounds(userProfile, minValue, maxValue):
+        return np.any(userProfile < minValue) or np.any(userProfile > maxValue)
 
 
 
@@ -62,3 +69,39 @@ def show_progress_bar(current, total, barLength=50):
     filled = int(barLength * current / total)
     bar = '█' * filled + '-' * (barLength - filled)
     print(f"\r|{bar}| {percent:.1f}%", end='', flush=True)
+
+
+def save_experiment_configuration(bestRating, minSteps, maxSteps, keepUserProfiles, updateFactor,
+                                  alpha, beta, stateDim, actionDim, actorHiddenDim, criticHiddenDim,
+                                  device, minutes, batchSize, lambda_, gamma, epochs, experimentName):
+    try:
+        config = {
+            "bestScore": bestRating,
+            "minSteps": minSteps,
+            "maxSteps": maxSteps,
+            "keepUserProfiles": keepUserProfiles,
+            "updateFactor": updateFactor,
+            "alpha": alpha,
+            "beta": beta,
+            "stateDim": stateDim,
+            "actionDim": actionDim,
+            "actorHiddenDim": actorHiddenDim,
+            "criticHiddenDim": criticHiddenDim,
+            "device": device,
+            "minutes": minutes,
+            "batchSize": batchSize,
+            "lambda": lambda_,
+            "gamma": gamma,
+            "epochs": epochs
+        }
+
+        with open(EXPERIMENTS_CONFIGS_DIR + f'{experimentName}.json', 'w') as f:
+            json.dump(config, f, indent=4)
+
+        shutil.copy2(MODELS_CHECKPOINT_DIR + f'{experimentName}_actor.pth', EXPERIMENTS_MODELS_DIR + f'{experimentName}_actor.pth')
+        shutil.copy2(MODELS_CHECKPOINT_DIR + f'{experimentName}_critic.pth', EXPERIMENTS_MODELS_DIR + f'{experimentName}_critic.pth')
+
+        print(f"Experiment configuration and models saved successfully.")
+        
+    except Exception as e:
+        print(f"Error occurred while saving experiment: {e}")

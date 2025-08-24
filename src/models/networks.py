@@ -15,26 +15,30 @@ class ActorNet(nn.Module):
         self.tanh = nn.Tanh()
         self.softplus = nn.Softplus()
 
-        self.fcLayer1 = nn.Linear(stateDim, hiddenDim)
-        self.fcLayer2 = nn.Linear(hiddenDim, hiddenDim)
+        self.sharedLayer1 = nn.Linear(stateDim, hiddenDim)
 
-        self.meanLayer = nn.Linear(hiddenDim, actionDim)
-        self.stdLayer = nn.Linear(hiddenDim, actionDim)
+        self.meanLayer1 = nn.Linear(hiddenDim, actionDim)
+        self.stdLayer1 = nn.Linear(hiddenDim, actionDim)
+
+        self.meanLayer2 = nn.Linear(hiddenDim, actionDim)
+        self.stdLayer2 = nn.Linear(hiddenDim, actionDim)
 
 
     def forward(self, state):
-        x = self.relu(self.fcLayer1(state))
-        #x = self.relu(self.fcLayer2(x))
+        x = self.relu(self.sharedLayer1(state))
 
-        mu = self.meanLayer(x)
-        sigma = self.softplus(self.stdLayer(x)) + 1e-6
+        mu = self.relu(self.meanLayer1(x))
+        
+        sigma = self.softplus(self.stdLayer1(x)) + 1e-6
 
         dist = Normal(mu, sigma)
         action = dist.sample()
 
         logProb = dist.log_prob(action).sum(dim=-1)
 
-        return action, logProb
+        entropy = dist.entropy().sum(dim=-1)
+
+        return action, logProb, entropy
 
 
 
