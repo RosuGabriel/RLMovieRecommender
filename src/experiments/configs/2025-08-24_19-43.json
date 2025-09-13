@@ -6,6 +6,7 @@
     "updateFactor": 0.1,
     "alpha": 0.001,
     "beta": 0.0005,
+    "stateType": "user",
     "stateDim": 403,
     "actionDim": 403,
     "actorHiddenDim": 768,

@@ -72,27 +72,50 @@ def show_progress_bar(current, total, barLength=50):
 
 
 def save_experiment_configuration(bestRating, minSteps, maxSteps, keepUserProfiles, updateFactor,
-                                  alpha, beta, stateDim, actionDim, actorHiddenDim, criticHiddenDim,
-                                  device, minutes, batchSize, lambda_, gamma, epochs, experimentName):
+                                  alpha, beta, obsDim, stateDim, actionDim, actorHiddenDim, criticLayersDims,
+                                  titleDim, genresDim, yearDim, titleOutDim, genresOutDim, yearOutDim,
+                                  device, stateType, minutes, batchSize, lambda_, gamma, epochs, entropyCoef,
+                                  normalizedAdvantages, useResizedStateForCritic, experimentName, mentions):
     try:
         config = {
-            "bestScore": bestRating,
-            "minSteps": minSteps,
-            "maxSteps": maxSteps,
-            "keepUserProfiles": keepUserProfiles,
-            "updateFactor": updateFactor,
-            "alpha": alpha,
-            "beta": beta,
-            "stateDim": stateDim,
-            "actionDim": actionDim,
-            "actorHiddenDim": actorHiddenDim,
-            "criticHiddenDim": criticHiddenDim,
-            "device": device,
-            "minutes": minutes,
-            "batchSize": batchSize,
-            "lambda": lambda_,
-            "gamma": gamma,
-            "epochs": epochs
+            "bestRating": bestRating,
+            "envSettings":
+            {
+                "minSteps": minSteps,
+                "maxSteps": maxSteps,
+                "keepUserProfiles": keepUserProfiles,
+                "updateFactor": updateFactor
+            },
+            "agentSettings":
+            {
+                "alpha": alpha,
+                "beta": beta,
+                "obsDim": obsDim,
+                "stateDim": stateDim,
+                "actionDim": actionDim,
+                "actorHiddenDim": actorHiddenDim,
+                "criticLayersDims": criticLayersDims,
+                "titleDim": titleDim,
+                "genresDim": genresDim,
+                "yearDim": yearDim,
+                "titleOutDim": titleOutDim,
+                "genresOutDim": genresOutDim,
+                "yearOutDim": yearOutDim,
+                "device": device,
+                "stateType": stateType,
+                "useResizedStateForCritic": useResizedStateForCritic
+            },
+            "trainingSettings":
+            {
+                "minutes": minutes,
+                "batchSize": batchSize,
+                "lambda": lambda_,
+                "gamma": gamma,
+                "epochs": epochs,
+                "entropyCoef": entropyCoef,
+                "normalizedAdvantages": normalizedAdvantages
+            },
+            "mentions": mentions
         }
 
         with open(EXPERIMENTS_CONFIGS_DIR + f'{experimentName}.json', 'w') as f:
@@ -105,3 +128,19 @@ def save_experiment_configuration(bestRating, minSteps, maxSteps, keepUserProfil
         
     except Exception as e:
         print(f"Error occurred while saving experiment: {e}")
+
+
+def load_experiment_configuration(experimentName):
+    if not experimentName:
+        return 0, False, False, False
+    try:
+        with open(EXPERIMENTS_CONFIGS_DIR + f'{experimentName}.json', 'r') as f:
+            config = json.load(f)
+        bestRating = config["bestRating"]
+        envSettings = config["envSettings"]
+        agentSettings = config["agentSettings"]
+        trainingSettings = config["trainingSettings"]
+        return bestRating, envSettings, agentSettings, trainingSettings
+    except Exception as e:
+        print(f"Error occurred while loading experiment configuration: {e}")
+        return None

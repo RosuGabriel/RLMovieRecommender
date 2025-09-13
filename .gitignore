@@ -17,5 +17,6 @@ config_secrets.py
 checkpoints/
 tmp/
 extra/
+src/experiments/configs/
 src/experiments/models/
 src/experiments/plots/

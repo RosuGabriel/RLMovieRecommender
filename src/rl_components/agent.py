@@ -2,9 +2,8 @@
 import sys
 sys.path.append('../')
 import torch
-import random
 from models.networks import CriticNet, ActorNet
-from utils.paths import MODELS_CHECKPOINT_DIR
+from utils.paths import MODELS_CHECKPOINT_DIR, EXPERIMENTS_MODELS_DIR
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -12,19 +11,10 @@ import numpy as np
 
 # Agent definition
 class Agent:
-    def __init__(self, alpha: float = 0.0001, beta: float = 0.0001,
-                 stateDim: int = 403, actionDim: int = 403, actorHiddenDim: int = 128, criticHiddenDim: int = 128,
-                 device: str = 'cuda', experienceBufferSize: int = 64):
-        self.alpha = alpha
-        self.beta = beta
-        self.stateDim = stateDim
-        self.actionDim = actionDim
-        self.actorHiddenDim = actorHiddenDim
-        self.criticHiddenDim = criticHiddenDim
-        self.experienceBufferSize = experienceBufferSize
-        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.buffer = []
-
+    def __init__(self, alpha: float = 0.0001, beta: float = 0.0001, obsDim: int = 403,
+                 titleDim=384, genresDim=18, yearDim=1, titleOutDim=None, genresOutDim=None, yearOutDim=None,
+                 stateDim: int = 403, actionDim: int = 403, actorHiddenDim: int = 128, criticLayersDims: list = [128, 1],
+                 device: str = 'cuda', stateType: str = 'user'):
         # Initialize histories for plotting
         self.actorLossHistory = []
         self.criticLossHistory = []
@@ -34,19 +24,76 @@ class Agent:
         self.avgRatingHistory = []
         self.actionHistory = []
 
+        self.muMeanHistory = []
+        self.muStdHistory = []
+        self.sigmaMeanHistory = []
+        self.sigmaMaxHistory = []
+        self.sigmaMinHistory = []
+        self.logProbsHistory = []
+
         # Initialize networks
-        self.actor = ActorNet(stateDim, actionDim, actorHiddenDim).to(self.device)
-        self.critic = CriticNet(stateDim, criticHiddenDim).to(self.device)
-        self.actorOptimizer = torch.optim.Adam(self.actor.parameters(), lr=self.alpha)
-        self.criticOptimizer = torch.optim.Adam(self.critic.parameters(), lr=self.beta)
+        self.setup_networks(alpha, beta, obsDim, stateDim, actionDim, actorHiddenDim, criticLayersDims,
+                            titleDim, genresDim, yearDim, titleOutDim, genresOutDim, yearOutDim, device, stateType)
+
+
+    # Setup networks method
+    def setup_networks(self, alpha, beta, obsDim, stateDim, actionDim, actorHiddenDim, criticLayersDims, titleDim, genresDim, yearDim, titleOutDim, genresOutDim, yearOutDim,
+                       device, stateType):
+        self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.stateType = stateType
+
+        self.actor = ActorNet(obsDim, actionDim, actorHiddenDim, titleDim, genresDim, yearDim, titleOutDim, genresOutDim, yearOutDim).to(self.device)
+        if self.stateType == 'user':
+            self.critic = CriticNet([stateDim] + criticLayersDims).to(self.device)
+        elif self.stateType in ['user-action', 'user-product', 'user-absDiff']:
+            self.critic = CriticNet([stateDim + actionDim] + criticLayersDims).to(self.device)
+        elif self.stateType in ['user-action-product', 'user-action-absDiff']:
+            self.critic = CriticNet([stateDim] + criticLayersDims).to(self.device)
+
+        self.actorOptimizer = torch.optim.Adam(self.actor.parameters(), lr=alpha)
+        self.criticOptimizer = torch.optim.Adam(self.critic.parameters(), lr=beta)
 
 
     # Choose an action based on the current state
-    def choose_action(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
-        action, logProb, entropy = self.actor(state)
-        value = self.critic(state)
-        return action, logProb, value, entropy
+    def choose_action(self, observation):
+        observation = torch.tensor(observation, dtype=torch.float32).to(self.device)
+        action, logProb, entropy, state, mu, sigma = self.actor(observation)
+        
+        self.muMeanHistory.append(mu.mean().item())
+        self.muStdHistory.append(mu.std().item())
+        self.sigmaMeanHistory.append(sigma.mean().item())
+        self.sigmaMaxHistory.append(sigma.max().item())
+        self.sigmaMinHistory.append(sigma.min().item())
+        self.logProbsHistory.append(logProb.item())
+        self.entropyHistory.append(entropy.item())
+        
+        return action, logProb, state
+
+
+    def evaluate_action(self, observation, resizedState, action, useResizedStateForCritic=False):
+        # Use the env observation or the actor resized state for the value estimation
+        if not useResizedStateForCritic:
+            observation = torch.tensor(observation, dtype=torch.float32).to(self.device)
+            state = observation
+        else:
+            state = resizedState.detach()
+        
+        if self.stateType == 'user-action':
+            state = torch.cat([state, action], dim=-1) 
+        elif self.stateType == 'user-product':
+            product = state * action
+            state = torch.cat([state, product], dim=-1) 
+        elif self.stateType == 'user-absDiff':
+            absDiff = torch.abs(state - action)
+            state = torch.cat([state, absDiff], dim=-1)
+        elif self.stateType == 'user-action-product':
+            product = state * action
+            state = torch.cat([state, action, product], dim=-1)
+        elif self.stateType == 'user-action-absDiff':
+            absDiff = torch.abs(state - action)
+            state = torch.cat([state, action, absDiff], dim=-1)
+
+        return self.critic(state)
 
 
     def compute_returns_and_advantages(self, rewards, values, nextValue=0, gamma=0.99, lambda_=None):
@@ -77,16 +124,17 @@ class Agent:
 
 
     # Update models
-    def learn(self, values, returns, advantages, logProbs):
+    def learn(self, values, returns, advantages, logProbs, entropy, entropyCoef=0.01):
         # Convert to tensors
         values = torch.stack(values).to(self.device)
         returns = torch.tensor(returns).to(self.device)
-        advantages = torch.tensor(advantages).to(self.device)
+        if not isinstance(advantages, torch.Tensor):
+            advantages = torch.tensor(advantages).to(self.device)
         logProbs = torch.stack(logProbs).to(self.device)
 
         # Update actor
         self.actorOptimizer.zero_grad()
-        actorLoss = -torch.mean(logProbs * advantages)
+        actorLoss = -torch.mean(logProbs * advantages.detach()) - entropyCoef * entropy
         actorLoss.backward()
         torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
         self.actorOptimizer.step()
@@ -118,16 +166,29 @@ class Agent:
         self.critic.load_state_dict(torch.load(dirPath + fileName + '_critic.pth', map_location=self.device, weights_only=True))
 
 
+    # Load configuration from json experiment file
+    def load_config(self, experimentName, config):
+        self.setup_networks(**config)
+        self.load_models(experimentName, dirPath=EXPERIMENTS_MODELS_DIR)
+
+
     # Plot training method
-    def plot_training(self, window:int=0, figName="training_plot", showPlot:bool=True, saveFig:bool=False):
+    def plot_training(self, window:bool=False, figName="training_plot", showPlot:bool=True, saveFig:bool=False, sliceStart:int=0, sliceEnd:int=None):
         plotData = [
         ("Actor Loss", self.actorLossHistory, 'mediumpurple', None, '-'),
-        ("Critic Loss", self.criticLossHistory, 'steelblue', None, '-'),
+        ("Abs Actor Loss", np.abs(self.actorLossHistory.copy()), 'mediumvioletred', None, '-'),
         ("Advantages", self.advantageHistory, 'saddlebrown', None, '-'),
+        ("Critic Loss", self.criticLossHistory, 'steelblue', None, '-'),
         ("Average Rating", self.avgRatingHistory, 'olivedrab', None, '-'),
         ("State Values", self.stateValueHistory, 'darkblue', None, '-'),
-        ("Entropy", self.entropyHistory, 'teal', None, '-'),
         ("Actions", self.actionHistory, 'crimson', '.', ''),
+        ("Entropy", self.entropyHistory, 'darkorange', None, '-'),
+        ("Mu Mean", self.muMeanHistory, 'blue', None, '-'),
+        ("Mu Std", self.muStdHistory, 'deepskyblue', None, '-'),
+        ("LogProbs", self.logProbsHistory, 'purple', None, '-'),
+        ("Sigma Mean", self.sigmaMeanHistory, 'red', None, '-'),
+        ("Sigma Min", self.sigmaMinHistory, 'lightcoral', None, '-'),
+        ("Sigma Max", self.sigmaMaxHistory, 'brown', None, '-'),
         ]
 
         n = len(plotData)
@@ -138,15 +199,18 @@ class Agent:
         axes = axes.flatten()
 
         for i, (title, values, color, marker, linestyle) in enumerate(plotData):
-            if len(values) > 0 and torch.is_tensor(values[0]):
+            numOfValues = len(values)
+            if numOfValues > 0 and torch.is_tensor(values[0]):
                 values = [v.detach().cpu().numpy().squeeze() for v in values]
 
-            if window and title != "Actions":
+            if window and title not in ["Actions"]:
+                window = max(1, numOfValues // 20)
                 values = np.convolve(values, np.ones(window)/window, mode='valid')
             else:
-                step = max(1, len(values) // 1000)  # max 1000 points
+                step = max(1, numOfValues // 1000)
                 values = values[::step]
 
+            values = values[sliceStart:sliceEnd]
             axes[i].plot(values, label=title, color=color, marker=marker, linestyle=linestyle)
             axes[i].set_title(f"{title}")
             axes[i].grid(True)
@@ -156,9 +220,9 @@ class Agent:
             fig.delaxes(axes[j])
 
         plt.tight_layout()
-        if showPlot:
-            plt.show()
         if saveFig and window:
             plt.savefig(f"{figName}_with_window_{window}.png")
         elif saveFig:
             plt.savefig(f"{figName}.png")
+        if showPlot:
+            plt.show()

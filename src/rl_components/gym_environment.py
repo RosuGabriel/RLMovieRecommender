@@ -6,37 +6,33 @@ from utils.helpers import DataProcessor
 import gym
 import numpy as np
 import random
+from collections import deque
 
 
 
 # Env definition
 class MovieLensEnv(gym.Env):
     def __init__(self, dataset: MovieLensDataset = None, minSteps: int = 3, maxSteps: int = 10, keepUserProfiles: bool = False,
-                 useContinuousActions: bool = True, updateFactor: float = 0.1, rarityBonus: float = 0.1):
+                 updateFactor: float = 0.1, rarityBonus: float = 0.1):
         # Initialize data
         super(MovieLensEnv, self).__init__()
         self.dataset = dataset if dataset else MovieLensDataset(loadRatings=True, loadMovieEmbeddings=True)
         self.dataset.calculate_all_users_embeddings()
         self.allMovieEmbeddings = np.vstack(self.dataset.movieEmbeddingsDF['embedding'].values)
         self.keepUserProfiles = keepUserProfiles
-        self.useContinuousActions = useContinuousActions
         self.updateFactor = updateFactor
         self.rarityBonus = rarityBonus
         self.minSteps = minSteps
         self.maxSteps = maxSteps
         self.usersProfiles = {}
-
+ 
         # Initialize state
         self.reset()
 
         # Define action and observation spaces
-        if self.useContinuousActions:
-            self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=self.allMovieEmbeddings[0].shape, dtype=np.float32)
-        else:
-            self.action_space = gym.spaces.Discrete(len(dataset.moviesDF))
-
+        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=self.allMovieEmbeddings[0].shape, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=-1.0, high=1.0, shape=self.userEmbedding.shape, dtype=np.float32)
-
+       
 
     # New state and stepCount reset
     def reset(self, userId=None):
@@ -67,7 +63,7 @@ class MovieLensEnv(gym.Env):
             self.usersProfiles[self.userId] = self.dataset.get_user_embedding(self.userId)
             self.userEmbedding = self.usersProfiles[self.userId]
         else:
-            self.userEmbedding = self.dataset.get_user_embedding(self.userId)
+            self.userEmbedding = self.dataset.get_user_embedding(self.userId)[0, -19:]
 
         # Get user ratings
         self.userRatings = self.dataset.get_user_ratings(self.userId)
@@ -77,15 +73,15 @@ class MovieLensEnv(gym.Env):
         self.stepCount += 1
 
         # Convert action to movieId
-        if self.useContinuousActions:
-            movieIds = self.dataset.get_movieId_from_embedding_similarity(action.cpu(), self.allMovieEmbeddings, k=100)
-            movieId = None
-            for id in movieIds:
-                if id in self.userRatings:
-                    movieId = id
-                    break
-        else:
-            pass
+        movieIds = self.dataset.get_movieId_from_embedding_similarity(action.cpu().detach(), self.allMovieEmbeddings, k=100)
+        movieId = None
+        for id in movieIds:
+            if id in self.userRatings:
+                movieId = id
+                break
+
+        if movieId is None:
+            raise ValueError("No valid movieId found for the given action.")
 
         # Get movie embedding
         movieEmbedding = self.dataset.get_movie_embedding(movieId)
@@ -98,6 +94,9 @@ class MovieLensEnv(gym.Env):
         # Update user embedding
         if reward:
             self.userEmbedding = (self.userEmbedding * (1-self.updateFactor)) + (movieEmbedding * reward * self.updateFactor)
+            self.userEmbedding[:,:384] = self.userEmbedding[:,:384] / np.linalg.norm(self.userEmbedding[:,:384])
+            self.userEmbedding[:,385:] = self.userEmbedding[:,385:] / np.linalg.norm(self.userEmbedding[:,385:])
+
         self.usersProfiles[self.userId] = self.userEmbedding
         
         done = self.stepCount >= self.lastStep

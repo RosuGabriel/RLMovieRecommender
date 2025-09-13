@@ -1,27 +1,48 @@
 #%%
+# Imports
 from data_processing.dataset import MovieLensDataset
 from rl_components.agent import Agent
 import torch
 import numpy as np
+from utils.helpers import load_experiment_configuration
+
 
 
 #%%
-dataset = MovieLensDataset(includeSyntheticRatings=False, loadRatings=False, loadMovieEmbeddings=True, includeMyRatings=True)
+# Load dataset and calculate all movie embeddings
+dataset = MovieLensDataset(includeSyntheticRatings=False, loadRatings=True, loadMovieEmbeddings=True, includeMyRatings=True)
 dataset.calculate_all_users_embeddings()
-agent = Agent(stateDim=403, actionDim=403, actorHiddenDim=1028, criticHiddenDim=512, device='cpu')
+
 allMovieEmbeddings = np.vstack(dataset.movieEmbeddingsDF['embedding'].values)
 
+
 #%%
-agent.load_models(fileName="2025-08-15_21-58-00")
+# Load agent and its configuration
+modelName = "2025-09-08_16-32_gen1"
+
+agentSettings = load_experiment_configuration(modelName)[2]
+del agentSettings["useResizedStateForCritic"]
+agent = Agent()
+agent.load_config(modelName, agentSettings)
 
 
 #%%
-userId = 611
+# Set user
+userId = 300
+
 userEmbedding = dataset.get_user_embedding(userId)
 userEmbedding = torch.tensor(userEmbedding, dtype=torch.float32)
 
+
 #%%
-action, _ = agent.actor(userEmbedding)
+# Get recommendations
+action, _, _, _, _, _ = agent.actor(userEmbedding)
 recommendations = dataset.get_movieId_from_embedding_similarity(action, allMovieEmbeddings, k=10)
+dbUser = userId < 601
+if dbUser:
+    ratings = dataset.get_user_ratings(userId)
 for r in recommendations:
-    print(dataset.get_movie_title(r))
+    if dbUser and r in ratings:
+        print(dataset.get_movie_title(r),"-",ratings[r])
+    elif not dbUser:
+        print(dataset.get_movie_title(r))
